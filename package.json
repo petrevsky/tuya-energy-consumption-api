@@ -1,0 +1,21 @@
+{
+  "name": "energy-monitor",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply energy-monitor-db"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.36.4",
+    "hono": "^4.9.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250810.0",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.28.1",
+    "wrangler": "^4.4.0"
+  }
+}

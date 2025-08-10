@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "energy-monitor",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-08-10",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "triggers": {
+    "crons": [
+      "0 * * * *"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "energy-monitor-db",
+      "database_id": "2f5e4889-e11e-43d8-87d4-34b968d3b377"
+    }
+  ]
+}
