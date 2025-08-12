@@ -312,6 +312,30 @@ export class EnergyProcessor {
                             sum + row.lowTariffKwh + row.highTariffKwh,
                         0
                     ),
+                    averageLow:
+                        result.length > 0
+                            ? result.reduce(
+                                  (sum, row) => sum + row.lowTariffKwh,
+                                  0
+                              ) / result.length
+                            : 0,
+                    averageHigh:
+                        result.length > 0
+                            ? result.reduce(
+                                  (sum, row) => sum + row.highTariffKwh,
+                                  0
+                              ) / result.length
+                            : 0,
+                    averageTotal:
+                        result.length > 0
+                            ? result.reduce(
+                                  (sum, row) =>
+                                      sum +
+                                      row.lowTariffKwh +
+                                      row.highTariffKwh,
+                                  0
+                              ) / result.length
+                            : 0,
                 },
             };
         } catch (e) {
@@ -386,6 +410,25 @@ export class EnergyProcessor {
                         (sum, row) => sum + row.total,
                         0
                     ),
+                    averageLow:
+                        dailyData.length > 0
+                            ? dailyData.reduce((sum, row) => sum + row.low, 0) /
+                              dailyData.length
+                            : 0,
+                    averageHigh:
+                        dailyData.length > 0
+                            ? dailyData.reduce(
+                                  (sum, row) => sum + row.high,
+                                  0
+                              ) / dailyData.length
+                            : 0,
+                    averageTotal:
+                        dailyData.length > 0
+                            ? dailyData.reduce(
+                                  (sum, row) => sum + row.total,
+                                  0
+                              ) / dailyData.length
+                            : 0,
                 },
             };
         } catch (e) {
