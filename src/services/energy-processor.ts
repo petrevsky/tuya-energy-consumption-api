@@ -262,4 +262,135 @@ export class EnergyProcessor {
             throw e;
         }
     }
+
+    async getDailyConsumption(
+        deviceId: string,
+        startDate: string,
+        endDate: string
+    ) {
+        try {
+            // Fetch daily consumption data, ordered by date
+            const result = await this.db
+                .select({
+                    date: dailyConsumption.date,
+                    lowTariffKwh: dailyConsumption.lowTariffKwh,
+                    highTariffKwh: dailyConsumption.highTariffKwh,
+                })
+                .from(dailyConsumption)
+                .where(
+                    and(
+                        eq(dailyConsumption.deviceId, deviceId),
+                        sql`${dailyConsumption.date} >= ${startDate}`,
+                        sql`${dailyConsumption.date} <= ${endDate}`
+                    )
+                )
+                .orderBy(sql`${dailyConsumption.date} DESC`)
+                .limit(30); // Maximum 30 days
+
+            // Transform the data for better graph compatibility
+            return {
+                deviceId,
+                period: { start: startDate, end: endDate },
+                dailyData: result.map((row) => ({
+                    date: row.date,
+                    low: row.lowTariffKwh,
+                    high: row.highTariffKwh,
+                    total: row.lowTariffKwh + row.highTariffKwh,
+                })),
+                totalDays: result.length,
+                summary: {
+                    totalLow: result.reduce(
+                        (sum, row) => sum + row.lowTariffKwh,
+                        0
+                    ),
+                    totalHigh: result.reduce(
+                        (sum, row) => sum + row.highTariffKwh,
+                        0
+                    ),
+                    grandTotal: result.reduce(
+                        (sum, row) =>
+                            sum + row.lowTariffKwh + row.highTariffKwh,
+                        0
+                    ),
+                },
+            };
+        } catch (e) {
+            console.error("Failed to query daily consumption data:", e);
+            throw e;
+        }
+    }
+
+    async getAllDailyConsumption(startDate: string, endDate: string) {
+        try {
+            // Fetch daily consumption data for all devices, ordered by date
+            const result = await this.db
+                .select({
+                    date: dailyConsumption.date,
+                    deviceId: dailyConsumption.deviceId,
+                    lowTariffKwh: dailyConsumption.lowTariffKwh,
+                    highTariffKwh: dailyConsumption.highTariffKwh,
+                })
+                .from(dailyConsumption)
+                .where(
+                    and(
+                        sql`${dailyConsumption.date} >= ${startDate}`,
+                        sql`${dailyConsumption.date} <= ${endDate}`
+                    )
+                )
+                .orderBy(sql`${dailyConsumption.date} DESC`)
+                .limit(30); // Maximum 30 days across all devices
+
+            // Group by date and aggregate across all devices
+            const dailyAggregates: Record<
+                string,
+                { low: number; high: number; devices: string[] }
+            > = {};
+
+            for (const row of result) {
+                if (!dailyAggregates[row.date]) {
+                    dailyAggregates[row.date] = {
+                        low: 0,
+                        high: 0,
+                        devices: [],
+                    };
+                }
+                dailyAggregates[row.date].low += row.lowTariffKwh;
+                dailyAggregates[row.date].high += row.highTariffKwh;
+                if (!dailyAggregates[row.date].devices.includes(row.deviceId)) {
+                    dailyAggregates[row.date].devices.push(row.deviceId);
+                }
+            }
+
+            // Convert to array and sort by date
+            const dailyData = Object.entries(dailyAggregates)
+                .map(([date, data]) => ({
+                    date,
+                    low: data.low,
+                    high: data.high,
+                    total: data.low + data.high,
+                    devicesCount: data.devices.length,
+                }))
+                .sort((a, b) => b.date.localeCompare(a.date)); // Sort by date descending
+
+            return {
+                period: { start: startDate, end: endDate },
+                dailyData,
+                totalDays: dailyData.length,
+                summary: {
+                    totalLow: dailyData.reduce((sum, row) => sum + row.low, 0),
+                    totalHigh: dailyData.reduce(
+                        (sum, row) => sum + row.high,
+                        0
+                    ),
+                    grandTotal: dailyData.reduce(
+                        (sum, row) => sum + row.total,
+                        0
+                    ),
+                },
+            };
+        } catch (e) {
+            console.error("Failed to query all daily consumption data:", e);
+            throw e;
+        }
+    }
 }

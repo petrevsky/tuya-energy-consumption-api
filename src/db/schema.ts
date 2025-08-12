@@ -1,8 +1,29 @@
 import { sqliteTable, text, real, integer } from "drizzle-orm/sqlite-core";
 
+export const households = sqliteTable("Households", {
+    id: integer("id").primaryKey(),
+    name: text("name").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+        .notNull()
+        .$default(() => new Date()),
+});
+
+export const invoicePeriods = sqliteTable("InvoicePeriods", {
+    id: integer("id").primaryKey(),
+    householdId: integer("household_id")
+        .notNull()
+        .references(() => households.id),
+    fromDate: text("from_date").notNull(), // ISO date string (YYYY-MM-DD)
+    toDate: text("to_date").notNull(), // ISO date string (YYYY-MM-DD)
+    createdAt: integer("created_at", { mode: "timestamp" })
+        .notNull()
+        .$default(() => new Date()),
+});
+
 export const devices = sqliteTable("Devices", {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    householdId: integer("household_id").references(() => households.id),
     createdAt: integer("created_at", { mode: "timestamp" })
         .notNull()
         .$default(() => new Date()),
@@ -32,6 +53,10 @@ export const dailyConsumptionUniqueIndex = {
     unique: true,
 };
 
+export type Household = typeof households.$inferSelect;
+export type NewHousehold = typeof households.$inferInsert;
+export type InvoicePeriod = typeof invoicePeriods.$inferSelect;
+export type NewInvoicePeriod = typeof invoicePeriods.$inferInsert;
 export type Device = typeof devices.$inferSelect;
 export type NewDevice = typeof devices.$inferInsert;
 export type DailyConsumption = typeof dailyConsumption.$inferSelect;

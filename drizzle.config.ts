@@ -6,8 +6,8 @@ export default defineConfig({
     dialect: "sqlite",
     driver: "d1-http",
     dbCredentials: {
-        databaseId: "energy-monitor-db",
-        token: process.env.CLOUDFLARE_API_TOKEN!,
-        accountId: process.env.CLOUDFLARE_ACCOUNT_ID!,
+        databaseId: "2f5e4889-e11e-43d8-87d4-34b968d3b377",
+        token: process.env.CF_TOKEN!,
+        accountId: process.env.CF_ID!,
     },
 });

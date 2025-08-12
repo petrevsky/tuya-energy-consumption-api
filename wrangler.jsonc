@@ -6,9 +6,11 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  // Required environment variables (set via wrangler secret or dashboard):
+  // TUYA_CLIENT_ID, TUYA_SECRET, TUYA_DEVICE_ID, TUYA_BASE_URL, ADMIN_PASSWORD
   "triggers": {
     "crons": [
-      "0 * * * *"
+      "0 */2 * * *"
     ]
   },
   "d1_databases": [
