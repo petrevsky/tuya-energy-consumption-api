@@ -66,31 +66,37 @@ export class EnergyProcessor {
         this.tariffRules = tariffRules;
     }
 
-    async processEnergyLogs(deviceId: string): Promise<string> {
+    async processEnergyLogs(
+        deviceId: string,
+        forceStartTimestamp?: number
+    ): Promise<string> {
         console.log(
             "Starting scheduled task: processEnergyLogs for device:",
             deviceId
         );
 
         // --- STEP 1: Get the timestamp of the last processed log ---
-        let lastProcessedTimestamp = 0;
-        try {
-            const result = await this.db
-                .select({
-                    lastTs: max(dailyConsumption.lastProcessedTimestamp),
-                })
-                .from(dailyConsumption)
-                .where(eq(dailyConsumption.deviceId, deviceId))
-                .get();
+        let lastProcessedTimestamp = forceStartTimestamp || 0;
 
-            if (result && result.lastTs) {
-                lastProcessedTimestamp = result.lastTs;
+        if (!forceStartTimestamp) {
+            try {
+                const result = await this.db
+                    .select({
+                        lastTs: max(dailyConsumption.lastProcessedTimestamp),
+                    })
+                    .from(dailyConsumption)
+                    .where(eq(dailyConsumption.deviceId, deviceId))
+                    .get();
+
+                if (result && result.lastTs) {
+                    lastProcessedTimestamp = result.lastTs;
+                }
+            } catch (e) {
+                console.error(
+                    "D1 DB error or table not found. Assuming first run.",
+                    e
+                );
             }
-        } catch (e) {
-            console.error(
-                "D1 DB error or table not found. Assuming first run.",
-                e
-            );
         }
 
         console.log(`Last processed timestamp: ${lastProcessedTimestamp}`);
@@ -110,9 +116,26 @@ export class EnergyProcessor {
                 }
             );
 
-            const newLogs = apiResponse.result.logs.filter(
+            const allAddEleLogs = apiResponse.result.logs.filter(
                 (log) => log.code === "add_ele"
             );
+
+            const newLogs =
+                forceStartTimestamp === 0
+                    ? allAddEleLogs
+                    : allAddEleLogs.filter(
+                          (log) => log.event_time > lastProcessedTimestamp
+                      );
+
+            if (allAddEleLogs.length > newLogs.length) {
+                console.log(
+                    `Found ${allAddEleLogs.length} 'add_ele' logs, processing ${newLogs.length} after timestamp filtering`
+                );
+            } else {
+                console.log(
+                    `Found ${allAddEleLogs.length} 'add_ele' logs to process`
+                );
+            }
 
             if (newLogs.length === 0) {
                 console.log("No new 'add_ele' logs to process.");
@@ -160,7 +183,12 @@ export class EnergyProcessor {
             );
 
             // --- STEP 4: Write the aggregated data to the D1 database ---
-            for (const [dateKey, data] of Object.entries(dailyAggregates)) {
+            // Sort dates chronologically before insertion to ensure consistent ID order
+            const sortedEntries = Object.entries(dailyAggregates).sort(
+                ([dateA], [dateB]) => dateA.localeCompare(dateB)
+            );
+
+            for (const [dateKey, data] of sortedEntries) {
                 try {
                     // First, try to get existing record
                     const existing = await this.db
@@ -176,13 +204,16 @@ export class EnergyProcessor {
 
                     if (existing) {
                         // Update existing record
+                        const newLow =
+                            existing.lowTariffKwh + data.lowTariffKwh;
+                        const newHigh =
+                            existing.highTariffKwh + data.highTariffKwh;
+
                         await this.db
                             .update(dailyConsumption)
                             .set({
-                                lowTariffKwh:
-                                    existing.lowTariffKwh + data.lowTariffKwh,
-                                highTariffKwh:
-                                    existing.highTariffKwh + data.highTariffKwh,
+                                lowTariffKwh: newLow,
+                                highTariffKwh: newHigh,
                                 lastProcessedTimestamp: maxTimestamp,
                                 updatedAt: new Date(),
                             })
