@@ -16,15 +16,39 @@ export class NorthMacedoniaTariffRules implements TariffRules {
      */
     isLowTariff(date: Date): boolean {
         // IMPORTANT: We are working with the local time for Skopje.
-        // The Unix timestamps from Tuya are in UTC, so we convert them.
-        const localDate = new Date(
+        // Get the hour and day in Macedonia timezone using Intl API
+        const hour = parseInt(
             date.toLocaleString("en-US", {
                 timeZone: "Europe/Skopje",
+                hour: "2-digit",
+                hour12: false,
             })
         );
 
-        const day = localDate.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
-        const hour = localDate.getHours();
+        const dayStr = date.toLocaleDateString("en-US", {
+            timeZone: "Europe/Skopje",
+            weekday: "short",
+        });
+
+        // Convert day string to numeric (0=Sunday, 1=Monday, ..., 6=Saturday)
+        const dayMap: { [key: string]: number } = {
+            Sun: 0,
+            Mon: 1,
+            Tue: 2,
+            Wed: 3,
+            Thu: 4,
+            Fri: 5,
+            Sat: 6,
+        };
+        const day = dayMap[dayStr] || 0;
+
+        // Debug logging
+        console.log(
+            `Tariff check - UTC: ${date.toISOString()}, Macedonia: ${date.toLocaleString(
+                "en-US",
+                { timeZone: "Europe/Skopje" }
+            )}, Day: ${day} (${dayStr}), Hour: ${hour}`
+        );
 
         // Check for weekend low tariff (from Saturday 22:00 to Monday 07:00)
         if (
@@ -157,9 +181,12 @@ export class EnergyProcessor {
                     maxTimestamp = timestamp;
                 }
 
+                // Convert timestamp to Macedonia timezone and get date
+                // timestamp is in milliseconds, so we create a Date object and format it in Macedonia timezone
                 const date = new Date(timestamp);
-                // Format the date as YYYY-MM-DD to use as the database key
-                const dateKey = date.toISOString().split("T")[0];
+                const dateKey = date.toLocaleDateString("en-CA", {
+                    timeZone: "Europe/Skopje",
+                }); // en-CA gives YYYY-MM-DD format
 
                 // Initialize if an entry for this day doesn't exist yet
                 if (!dailyAggregates[dateKey]) {
@@ -170,7 +197,16 @@ export class EnergyProcessor {
                 }
 
                 // Classify the consumption based on the tariff
-                if (this.tariffRules.isLowTariff(date)) {
+                const isLow = this.tariffRules.isLowTariff(date);
+                // Debug logging to understand tariff classification
+                console.log(
+                    `Timestamp: ${timestamp}, Macedonia time: ${date.toLocaleString(
+                        "en-US",
+                        { timeZone: "Europe/Skopje" }
+                    )}, isLowTariff: ${isLow}, kWh: ${valueKwh}`
+                );
+
+                if (isLow) {
                     dailyAggregates[dateKey].lowTariffKwh += valueKwh;
                 } else {
                     dailyAggregates[dateKey].highTariffKwh += valueKwh;
