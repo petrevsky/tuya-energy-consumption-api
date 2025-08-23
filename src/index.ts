@@ -54,8 +54,47 @@ app.get("/check-auth", requireAuth, async (c) => {
     });
 });
 
+// Route to check system status and cron schedule
+app.get("/status", async (c) => {
+    const currentTime = new Date();
+    const macedoniaTime = currentTime.toLocaleString("en-US", {
+        timeZone: "Europe/Skopje",
+    });
+
+    return c.json({
+        status: "online",
+        current_utc_time: currentTime.toISOString(),
+        current_macedonia_time: macedoniaTime,
+        cron_schedule: "0 */2 * * *", // Every 2 hours at minute 0
+        cron_description: "Runs every 2 hours (00:00, 02:00, 04:00, etc.) UTC",
+        timezone_info: {
+            server_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            macedonia_timezone: "Europe/Skopje",
+            utc_offset: "+02:00 (CEST) or +01:00 (CET)",
+        },
+        environment: {
+            has_tuya_credentials: !!(
+                c.env.TUYA_CLIENT_ID &&
+                c.env.TUYA_SECRET &&
+                c.env.TUYA_DEVICE_ID
+            ),
+            has_database: !!c.env.DB,
+            has_admin_password: !!c.env.ADMIN_PASSWORD,
+        },
+    });
+});
+
 // Route for manually triggering the process (for testing)
 app.get("/run-manual", async (c) => {
+    console.log(`🔧 MANUAL TASK TRIGGERED`);
+    console.log(`🕒 Current UTC time: ${new Date().toISOString()}`);
+    console.log(
+        `🕒 Current Macedonia time: ${new Date().toLocaleString("en-US", {
+            timeZone: "Europe/Skopje",
+        })}`
+    );
+    console.log(`🌐 HTTP request context`);
+
     try {
         const db = createDatabase(c.env.DB);
         const tuyaApi = new TuyaApiService({
@@ -68,9 +107,10 @@ app.get("/run-manual", async (c) => {
         const processor = new EnergyProcessor(db, tuyaApi);
         const result = await processor.processEnergyLogs(c.env.TUYA_DEVICE_ID);
 
+        console.log(`✅ Manual processing completed successfully`);
         return c.text(result);
     } catch (error) {
-        console.error("Manual processing failed:", error);
+        console.error("❌ Manual processing failed:", error);
         return c.text("Processing failed: " + (error as Error).message, 500);
     }
 });
@@ -629,7 +669,21 @@ export default {
         env: Bindings,
         ctx: ExecutionContext
     ) {
-        console.log(`Triggered by CRON: ${event.cron}`);
+        console.log(`🔄 SCHEDULED TASK TRIGGERED`);
+        console.log(`📅 Cron expression: ${event.cron}`);
+        console.log(`🕒 Current UTC time: ${new Date().toISOString()}`);
+        console.log(
+            `🕒 Current Macedonia time: ${new Date().toLocaleString("en-US", {
+                timeZone: "Europe/Skopje",
+            })}`
+        );
+        console.log(
+            `🌍 Scheduled event context: ${
+                typeof event.scheduledTime !== "undefined"
+                    ? new Date(event.scheduledTime).toISOString()
+                    : "N/A"
+            }`
+        );
 
         const db = createDatabase(env.DB);
         const tuyaApi = new TuyaApiService({
@@ -643,7 +697,7 @@ export default {
 
         ctx.waitUntil(
             processor.processEnergyLogs(env.TUYA_DEVICE_ID).catch((error) => {
-                console.error("Scheduled processing failed:", error);
+                console.error("❌ Scheduled processing failed:", error);
             })
         );
     },

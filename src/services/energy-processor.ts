@@ -169,9 +169,12 @@ export class EnergyProcessor {
             // --- STEP 3: Aggregate the data by day and tariff ---
             const dailyAggregates: Record<
                 string,
-                { lowTariffKwh: number; highTariffKwh: number }
+                {
+                    lowTariffKwh: number;
+                    highTariffKwh: number;
+                    lastProcessedTimestamp: number;
+                }
             > = {};
-            let maxTimestamp = lastProcessedTimestamp;
 
             for (const log of newLogs) {
                 let timestamp = log.event_time;
@@ -184,10 +187,6 @@ export class EnergyProcessor {
                     console.log(
                         `Converted timestamp from seconds to milliseconds: ${log.event_time} -> ${timestamp}`
                     );
-                }
-
-                if (timestamp > maxTimestamp) {
-                    maxTimestamp = timestamp;
                 }
 
                 // Convert timestamp to Macedonia timezone and get date
@@ -215,7 +214,15 @@ export class EnergyProcessor {
                     dailyAggregates[dateKey] = {
                         lowTariffKwh: 0,
                         highTariffKwh: 0,
+                        lastProcessedTimestamp: 0,
                     };
+                }
+
+                // Update the last processed timestamp for this day if this log is newer
+                if (
+                    timestamp > dailyAggregates[dateKey].lastProcessedTimestamp
+                ) {
+                    dailyAggregates[dateKey].lastProcessedTimestamp = timestamp;
                 }
 
                 // Classify the consumption based on the tariff
@@ -274,7 +281,8 @@ export class EnergyProcessor {
                             .set({
                                 lowTariffKwh: newLow,
                                 highTariffKwh: newHigh,
-                                lastProcessedTimestamp: maxTimestamp,
+                                lastProcessedTimestamp:
+                                    data.lastProcessedTimestamp,
                                 updatedAt: new Date(),
                             })
                             .where(eq(dailyConsumption.id, existing.id));
@@ -285,7 +293,7 @@ export class EnergyProcessor {
                             deviceId,
                             lowTariffKwh: data.lowTariffKwh,
                             highTariffKwh: data.highTariffKwh,
-                            lastProcessedTimestamp: maxTimestamp,
+                            lastProcessedTimestamp: data.lastProcessedTimestamp,
                         });
                     }
                 } catch (e) {
@@ -297,7 +305,7 @@ export class EnergyProcessor {
             console.log(
                 `Successfully processed and saved ${
                     Object.keys(dailyAggregates).length
-                } daily aggregate(s).`
+                } daily aggregate(s) with per-day timestamps.`
             );
             return "Scheduled task completed successfully.";
         } catch (e) {

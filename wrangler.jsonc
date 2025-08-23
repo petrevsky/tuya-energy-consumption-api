@@ -19,5 +19,9 @@
       "database_name": "energy-monitor-db",
       "database_id": "2f5e4889-e11e-43d8-87d4-34b968d3b377"
     }
-  ]
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
 }
