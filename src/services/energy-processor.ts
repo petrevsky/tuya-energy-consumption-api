@@ -174,16 +174,38 @@ export class EnergyProcessor {
             let maxTimestamp = lastProcessedTimestamp;
 
             for (const log of newLogs) {
-                const timestamp = log.event_time;
+                let timestamp = log.event_time;
                 const valueKwh = parseFloat(log.value) / 1000;
+
+                // Fix for timestamp format issue: Ensure timestamp is in milliseconds
+                // If timestamp is less than 1e12 (year 2001), it's likely in seconds
+                if (timestamp < 1e12) {
+                    timestamp = timestamp * 1000;
+                    console.log(
+                        `Converted timestamp from seconds to milliseconds: ${log.event_time} -> ${timestamp}`
+                    );
+                }
 
                 if (timestamp > maxTimestamp) {
                     maxTimestamp = timestamp;
                 }
 
                 // Convert timestamp to Macedonia timezone and get date
-                // timestamp is in milliseconds, so we create a Date object and format it in Macedonia timezone
+                // timestamp is now guaranteed to be in milliseconds
                 const date = new Date(timestamp);
+
+                // Validate that the date is reasonable (not in 1970 or far future)
+                const currentYear = new Date().getFullYear();
+                const dateYear = date.getFullYear();
+                if (dateYear < 2020 || dateYear > currentYear + 1) {
+                    console.warn(
+                        `⚠️ Suspicious timestamp detected: ${
+                            log.event_time
+                        } -> ${date.toISOString()} (year ${dateYear})`
+                    );
+                    continue; // Skip this log entry
+                }
+
                 const dateKey = date.toLocaleDateString("en-CA", {
                     timeZone: "Europe/Skopje",
                 }); // en-CA gives YYYY-MM-DD format
@@ -200,7 +222,9 @@ export class EnergyProcessor {
                 const isLow = this.tariffRules.isLowTariff(date);
                 // Debug logging to understand tariff classification
                 console.log(
-                    `Timestamp: ${timestamp}, Macedonia time: ${date.toLocaleString(
+                    `Original: ${
+                        log.event_time
+                    }, Final: ${timestamp}, Macedonia time: ${date.toLocaleString(
                         "en-US",
                         { timeZone: "Europe/Skopje" }
                     )}, isLowTariff: ${isLow}, kWh: ${valueKwh}`
