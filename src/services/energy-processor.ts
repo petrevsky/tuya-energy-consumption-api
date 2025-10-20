@@ -1,6 +1,6 @@
 import { Database } from "../db";
-import { dailyConsumption } from "../db/schema";
-import { TuyaApiService, TuyaLogEntry } from "./tuya-api";
+import { dailyConsumption, devices, type NewDevice } from "../db/schema";
+import { TuyaApiService, TuyaLogEntry, TuyaDevice } from "./tuya-api";
 import { eq, and, max, sum, sql } from "drizzle-orm";
 
 interface TariffRules {
@@ -461,7 +461,7 @@ export class EnergyProcessor {
                     )
                 )
                 .orderBy(sql`${dailyConsumption.date} DESC`)
-                .limit(30); // Maximum 30 days across all devices
+                .limit(50); // Maximum 30 days across all devices
 
             // Group by date and aggregate across all devices
             const dailyAggregates: Record<
@@ -533,6 +533,301 @@ export class EnergyProcessor {
         } catch (e) {
             console.error("Failed to query all daily consumption data:", e);
             throw e;
+        }
+    }
+
+    async getConsumptionByDevice(startDate: string, endDate: string) {
+        try {
+            // Fetch daily consumption data for all devices
+            const result = await this.db
+                .select({
+                    date: dailyConsumption.date,
+                    deviceId: dailyConsumption.deviceId,
+                    deviceName: devices.name,
+                    lowTariffKwh: dailyConsumption.lowTariffKwh,
+                    highTariffKwh: dailyConsumption.highTariffKwh,
+                })
+                .from(dailyConsumption)
+                .leftJoin(devices, eq(dailyConsumption.deviceId, devices.id))
+                .where(
+                    and(
+                        sql`${dailyConsumption.date} >= ${startDate}`,
+                        sql`${dailyConsumption.date} <= ${endDate}`
+                    )
+                )
+                .orderBy(sql`${dailyConsumption.date} DESC`);
+
+            // Group by device and calculate metrics
+            const deviceAggregates: Record<
+                string,
+                {
+                    deviceId: string;
+                    deviceName: string | null;
+                    totalLow: number;
+                    totalHigh: number;
+                    totalDays: number;
+                }
+            > = {};
+
+            // Group by date for daily data
+            const dailyAggregates: Record<
+                string,
+                { low: number; high: number }
+            > = {};
+
+            // Track unique dates per device for proper averaging
+            const deviceDates: Record<string, Set<string>> = {};
+
+            for (const row of result) {
+                // Per-device aggregation
+                if (!deviceAggregates[row.deviceId]) {
+                    deviceAggregates[row.deviceId] = {
+                        deviceId: row.deviceId,
+                        deviceName: row.deviceName,
+                        totalLow: 0,
+                        totalHigh: 0,
+                        totalDays: 0,
+                    };
+                    deviceDates[row.deviceId] = new Set();
+                }
+                deviceAggregates[row.deviceId].totalLow += row.lowTariffKwh;
+                deviceAggregates[row.deviceId].totalHigh += row.highTariffKwh;
+                deviceDates[row.deviceId].add(row.date);
+
+                // Daily aggregation across all devices
+                if (!dailyAggregates[row.date]) {
+                    dailyAggregates[row.date] = {
+                        low: 0,
+                        high: 0,
+                    };
+                }
+                dailyAggregates[row.date].low += row.lowTariffKwh;
+                dailyAggregates[row.date].high += row.highTariffKwh;
+            }
+
+            // Update totalDays with unique date count
+            for (const deviceId in deviceAggregates) {
+                deviceAggregates[deviceId].totalDays =
+                    deviceDates[deviceId].size;
+            }
+
+            // Convert devices to array and calculate averages
+            const devicesData = Object.values(deviceAggregates).map(
+                (device) => {
+                    const grandTotal = device.totalLow + device.totalHigh;
+                    const numDays = device.totalDays || 1; // Avoid division by zero
+
+                    return {
+                        deviceId: device.deviceId,
+                        deviceName: device.deviceName || device.deviceId,
+                        totalLow: device.totalLow,
+                        totalHigh: device.totalHigh,
+                        grandTotal,
+                        averageLow: device.totalLow / numDays,
+                        averageHigh: device.totalHigh / numDays,
+                        averageTotal: grandTotal / numDays,
+                    };
+                }
+            );
+
+            // Calculate total summary across all devices
+            const totalLow = devicesData.reduce(
+                (sum, d) => sum + d.totalLow,
+                0
+            );
+            const totalHigh = devicesData.reduce(
+                (sum, d) => sum + d.totalHigh,
+                0
+            );
+            const grandTotal = totalLow + totalHigh;
+
+            // Calculate unique total days across all devices
+            const allDates = new Set<string>();
+            for (const dates of Object.values(deviceDates)) {
+                dates.forEach((date) => allDates.add(date));
+            }
+            const totalDaysCount = allDates.size || 1;
+
+            const totalSummary = {
+                totalLow,
+                totalHigh,
+                grandTotal,
+                averageLow: totalLow / totalDaysCount,
+                averageHigh: totalHigh / totalDaysCount,
+                averageTotal: grandTotal / totalDaysCount,
+            };
+
+            return {
+                period: { start: startDate, end: endDate },
+                totalSummary,
+                devices: devicesData,
+                totalDays: totalDaysCount,
+            };
+        } catch (e) {
+            console.error("Failed to query consumption by device:", e);
+            throw e;
+        }
+    }
+
+    async getDailyConsumptionAllDevices(startDate: string, endDate: string) {
+        try {
+            // Fetch daily consumption data for all devices
+            const result = await this.db
+                .select({
+                    date: dailyConsumption.date,
+                    lowTariffKwh: dailyConsumption.lowTariffKwh,
+                    highTariffKwh: dailyConsumption.highTariffKwh,
+                })
+                .from(dailyConsumption)
+                .where(
+                    and(
+                        sql`${dailyConsumption.date} >= ${startDate}`,
+                        sql`${dailyConsumption.date} <= ${endDate}`
+                    )
+                )
+                .orderBy(sql`${dailyConsumption.date} DESC`);
+
+            // Group by date and sum across all devices
+            const dailyAggregates: Record<
+                string,
+                { low: number; high: number }
+            > = {};
+
+            for (const row of result) {
+                if (!dailyAggregates[row.date]) {
+                    dailyAggregates[row.date] = {
+                        low: 0,
+                        high: 0,
+                    };
+                }
+                dailyAggregates[row.date].low += row.lowTariffKwh;
+                dailyAggregates[row.date].high += row.highTariffKwh;
+            }
+
+            // Convert to array and sort by date
+            const dailyData = Object.entries(dailyAggregates)
+                .map(([date, data]) => ({
+                    date,
+                    low: data.low,
+                    high: data.high,
+                    total: data.low + data.high,
+                }))
+                .sort((a, b) => b.date.localeCompare(a.date)); // Sort descending
+
+            // Calculate summary
+            const totalLow = dailyData.reduce((sum, d) => sum + d.low, 0);
+            const totalHigh = dailyData.reduce((sum, d) => sum + d.high, 0);
+            const grandTotal = totalLow + totalHigh;
+            const totalDaysCount = dailyData.length || 1;
+
+            return {
+                period: { start: startDate, end: endDate },
+                summary: {
+                    totalLow,
+                    totalHigh,
+                    grandTotal,
+                    averageLow: totalLow / totalDaysCount,
+                    averageHigh: totalHigh / totalDaysCount,
+                    averageTotal: grandTotal / totalDaysCount,
+                },
+                dailyData,
+                totalDays: dailyData.length,
+            };
+        } catch (e) {
+            console.error(
+                "Failed to query daily consumption for all devices:",
+                e
+            );
+            throw e;
+        }
+    }
+
+    async processAllDevices(): Promise<string> {
+        console.log("🔄 Starting to process all devices from Tuya API...");
+
+        try {
+            // Step 1: Get all devices from Tuya API
+            const tuyaDevices = await this.tuyaApi.getAllDevices();
+            console.log(`📱 Found ${tuyaDevices.length} devices from Tuya API`);
+
+            if (tuyaDevices.length === 0) {
+                return "No devices found from Tuya API.";
+            }
+
+            let processedCount = 0;
+            let createdCount = 0;
+            const results: string[] = [];
+
+            // Step 2: Process each device
+            for (const tuyaDevice of tuyaDevices) {
+                try {
+                    console.log(
+                        `🔍 Processing device: ${tuyaDevice.name} (${tuyaDevice.id})`
+                    );
+
+                    // Step 3: Check if device exists in database
+                    const existingDevice = await this.db
+                        .select()
+                        .from(devices)
+                        .where(eq(devices.id, tuyaDevice.id))
+                        .get();
+
+                    // Step 4: Create device if it doesn't exist
+                    if (!existingDevice) {
+                        console.log(
+                            `➕ Creating new device in database: ${tuyaDevice.name}`
+                        );
+
+                        const newDevice: NewDevice = {
+                            id: tuyaDevice.id,
+                            name: tuyaDevice.customName || tuyaDevice.name,
+                            householdId: 1, // Default to household ID 1 as requested
+                        };
+
+                        await this.db.insert(devices).values(newDevice);
+                        createdCount++;
+                        console.log(
+                            `✅ Device created successfully: ${tuyaDevice.name}`
+                        );
+                    } else {
+                        console.log(
+                            `📋 Device already exists in database: ${tuyaDevice.name}`
+                        );
+                    }
+
+                    // Step 5: Process energy logs for this device
+                    console.log(
+                        `⚡ Processing energy logs for device: ${tuyaDevice.name}`
+                    );
+                    const result = await this.processEnergyLogs(tuyaDevice.id);
+                    results.push(`Device ${tuyaDevice.name}: ${result}`);
+                    processedCount++;
+                } catch (deviceError) {
+                    console.error(
+                        `❌ Error processing device ${tuyaDevice.name}:`,
+                        deviceError
+                    );
+                    results.push(
+                        `Device ${tuyaDevice.name}: Failed - ${
+                            (deviceError as Error).message
+                        }`
+                    );
+                }
+            }
+
+            const summary = [
+                `✅ Processed ${processedCount}/${tuyaDevices.length} devices successfully`,
+                `➕ Created ${createdCount} new devices in database`,
+                "",
+                "📊 Individual results:",
+                ...results,
+            ].join("\n");
+
+            console.log("🎉 All devices processing completed!");
+            return summary;
+        } catch (error) {
+            console.error("❌ Failed to process all devices:", error);
+            throw error;
         }
     }
 }

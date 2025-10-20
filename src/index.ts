@@ -115,6 +115,123 @@ app.get("/run-manual", async (c) => {
     }
 });
 
+app.get("/run-all-devices", async (c) => {
+    console.log(`🔧 MANUAL ALL DEVICES TASK TRIGGERED`);
+    console.log(`🕒 Current UTC time: ${new Date().toISOString()}`);
+    console.log(
+        `🕒 Current Macedonia time: ${new Date().toLocaleString("en-US", {
+            timeZone: "Europe/Skopje",
+        })}`
+    );
+    console.log(`🌐 HTTP request context`);
+
+    try {
+        const db = createDatabase(c.env.DB);
+        const tuyaApi = new TuyaApiService({
+            clientId: c.env.TUYA_CLIENT_ID,
+            secret: c.env.TUYA_SECRET,
+            deviceId: c.env.TUYA_DEVICE_ID,
+            baseUrl: c.env.TUYA_BASE_URL,
+        });
+
+        const processor = new EnergyProcessor(db, tuyaApi);
+        const result = await processor.processAllDevices();
+
+        console.log(`✅ Manual all devices processing completed successfully`);
+        return c.text(result);
+    } catch (error) {
+        console.error("❌ Manual all devices processing failed:", error);
+        return c.text("Processing failed: " + (error as Error).message, 500);
+    }
+});
+
+// Route for getting consumption breakdown by device
+app.get("/consumption/by-device", async (c) => {
+    const start = c.req.query("start");
+    const end = c.req.query("end");
+
+    if (!start || !end) {
+        return c.text('Missing "start" or "end" query parameters.', 400);
+    }
+
+    try {
+        const db = createDatabase(c.env.DB);
+        const tuyaApi = new TuyaApiService({
+            clientId: c.env.TUYA_CLIENT_ID,
+            secret: c.env.TUYA_SECRET,
+            deviceId: c.env.TUYA_DEVICE_ID,
+            baseUrl: c.env.TUYA_BASE_URL,
+        });
+
+        const processor = new EnergyProcessor(db, tuyaApi);
+        const result = await processor.getConsumptionByDevice(start, end);
+
+        return c.json(result);
+    } catch (error) {
+        console.error("Failed to fetch consumption by device:", error);
+        return c.text("Error fetching data: " + (error as Error).message, 500);
+    }
+});
+
+// Route for getting daily consumption breakdown across all devices
+app.get("/consumption/daily", async (c) => {
+    const start = c.req.query("start");
+    const end = c.req.query("end");
+
+    if (!start || !end) {
+        return c.text('Missing "start" or "end" query parameters.', 400);
+    }
+
+    try {
+        const db = createDatabase(c.env.DB);
+        const tuyaApi = new TuyaApiService({
+            clientId: c.env.TUYA_CLIENT_ID,
+            secret: c.env.TUYA_SECRET,
+            deviceId: c.env.TUYA_DEVICE_ID,
+            baseUrl: c.env.TUYA_BASE_URL,
+        });
+
+        const processor = new EnergyProcessor(db, tuyaApi);
+        const result = await processor.getDailyConsumptionAllDevices(
+            start,
+            end
+        );
+
+        return c.json(result);
+    } catch (error) {
+        console.error("Failed to fetch daily consumption:", error);
+        return c.text("Error fetching data: " + (error as Error).message, 500);
+    }
+});
+
+// Route for getting daily consumption breakdown for all devices (max 50 days) - DEPRECATED, use /consumption/daily instead
+app.get("/consumption", async (c) => {
+    const start = c.req.query("start");
+    const end = c.req.query("end");
+
+    if (!start || !end) {
+        return c.text('Missing "start" or "end" query parameters.', 400);
+    }
+
+    try {
+        const db = createDatabase(c.env.DB);
+        const tuyaApi = new TuyaApiService({
+            clientId: c.env.TUYA_CLIENT_ID,
+            secret: c.env.TUYA_SECRET,
+            deviceId: c.env.TUYA_DEVICE_ID,
+            baseUrl: c.env.TUYA_BASE_URL,
+        });
+
+        const processor = new EnergyProcessor(db, tuyaApi);
+        const result = await processor.getAllDailyConsumption(start, end);
+
+        return c.json(result);
+    } catch (error) {
+        console.error("Failed to fetch consumption data:", error);
+        return c.text("Error fetching data: " + (error as Error).message, 500);
+    }
+});
+
 // Route for getting daily consumption breakdown for a specific period and device (max 30 days)
 app.get("/consumption/:deviceId", async (c) => {
     const deviceId = c.req.param("deviceId");
@@ -140,34 +257,6 @@ app.get("/consumption/:deviceId", async (c) => {
             start,
             end
         );
-
-        return c.json(result);
-    } catch (error) {
-        console.error("Failed to fetch consumption data:", error);
-        return c.text("Error fetching data: " + (error as Error).message, 500);
-    }
-});
-
-// Route for getting daily consumption breakdown for all devices (max 30 days)
-app.get("/consumption", async (c) => {
-    const start = c.req.query("start");
-    const end = c.req.query("end");
-
-    if (!start || !end) {
-        return c.text('Missing "start" or "end" query parameters.', 400);
-    }
-
-    try {
-        const db = createDatabase(c.env.DB);
-        const tuyaApi = new TuyaApiService({
-            clientId: c.env.TUYA_CLIENT_ID,
-            secret: c.env.TUYA_SECRET,
-            deviceId: c.env.TUYA_DEVICE_ID,
-            baseUrl: c.env.TUYA_BASE_URL,
-        });
-
-        const processor = new EnergyProcessor(db, tuyaApi);
-        const result = await processor.getAllDailyConsumption(start, end);
 
         return c.json(result);
     } catch (error) {
@@ -696,8 +785,11 @@ export default {
         const processor = new EnergyProcessor(db, tuyaApi);
 
         ctx.waitUntil(
-            processor.processEnergyLogs(env.TUYA_DEVICE_ID).catch((error) => {
-                console.error("❌ Scheduled processing failed:", error);
+            processor.processAllDevices().catch((error) => {
+                console.error(
+                    "❌ Scheduled processing of all devices failed:",
+                    error
+                );
             })
         );
     },

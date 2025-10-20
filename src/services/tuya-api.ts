@@ -30,6 +30,41 @@ interface TuyaTokenResponse {
     };
 }
 
+interface TuyaDevice {
+    id: string;
+    activeTime: number;
+    category: string;
+    createTime: number;
+    updateTime: number;
+    customName: string;
+    icon: string;
+    ip: string;
+    isOnline: boolean;
+    lat: string;
+    localKey: string;
+    lon: string;
+    name: string;
+    productId: string;
+    productName: string;
+    sub: boolean;
+    timeZone: string;
+    uuid: string;
+}
+
+interface TuyaDeviceResponse {
+    success: boolean;
+    result: TuyaDevice;
+    t: number;
+    tid: string;
+}
+
+interface TuyaDevicesListResponse {
+    success: boolean;
+    result: TuyaDevice[];
+    t: number;
+    tid: string;
+}
+
 export class TuyaApiService {
     private credentials: TuyaCredentials;
 
@@ -354,6 +389,124 @@ export class TuyaApiService {
         );
         return this.getDeviceLogs(accessToken, deviceId, options);
     }
+
+    async getDeviceDetails(deviceId: string): Promise<TuyaDevice> {
+        console.log(`Getting device details for device: ${deviceId}`);
+        const accessToken = await this.getAccessToken();
+
+        const deviceUrl = `${this.credentials.baseUrl}/v2.0/cloud/thing/${deviceId}`;
+        const t = this.getCurrentTimestamp();
+        const nonce = this.generateNonce();
+
+        const stringToSign = this.createStringToSign("GET", deviceUrl);
+        const signature = await this.generateSignature(
+            t,
+            nonce,
+            stringToSign,
+            accessToken
+        );
+
+        const headers = {
+            client_id: this.credentials.clientId,
+            t: t,
+            sign: signature,
+            sign_method: "HMAC-SHA256",
+            nonce: nonce,
+            access_token: accessToken,
+        };
+
+        const response = await fetch(deviceUrl, { headers });
+        const responseData: TuyaDeviceResponse = await response.json();
+
+        if (responseData.success) {
+            console.log(
+                `✓ Device details obtained for: ${responseData.result.name}`
+            );
+            return responseData.result;
+        } else {
+            throw new Error(
+                `Failed to get device details: ${JSON.stringify(responseData)}`
+            );
+        }
+    }
+
+    async getAllDevices(): Promise<TuyaDevice[]> {
+        console.log("Getting all devices from Tuya API");
+        const accessToken = await this.getAccessToken();
+
+        const allDevices: TuyaDevice[] = [];
+        let lastId: string | undefined = undefined;
+        const pageSize = 20; // Maximum allowed by the API
+
+        do {
+            // Build the URL with query parameters
+            const params = new URLSearchParams({
+                page_size: pageSize.toString(),
+            });
+
+            if (lastId) {
+                params.set("last_id", lastId);
+            }
+
+            const devicesUrl = `${
+                this.credentials.baseUrl
+            }/v2.0/cloud/thing/device?${params.toString()}`;
+            const t = this.getCurrentTimestamp();
+            const nonce = this.generateNonce();
+
+            const stringToSign = this.createStringToSign("GET", devicesUrl);
+            const signature = await this.generateSignature(
+                t,
+                nonce,
+                stringToSign,
+                accessToken
+            );
+
+            const headers = {
+                client_id: this.credentials.clientId,
+                t: t,
+                sign: signature,
+                sign_method: "HMAC-SHA256",
+                nonce: nonce,
+                access_token: accessToken,
+            };
+
+            const response = await fetch(devicesUrl, { headers });
+            const responseData: TuyaDevicesListResponse = await response.json();
+
+            if (responseData.success) {
+                const devices = responseData.result;
+                allDevices.push(...devices);
+
+                console.log(
+                    `✓ Fetched ${devices.length} devices (total so far: ${allDevices.length})`
+                );
+
+                // Check if we need to fetch more pages
+                if (devices.length < pageSize) {
+                    // Last page reached
+                    break;
+                } else {
+                    // Set lastId for next page
+                    lastId = devices[devices.length - 1].id;
+                }
+            } else {
+                throw new Error(
+                    `Failed to get devices: ${JSON.stringify(responseData)}`
+                );
+            }
+        } while (true);
+
+        console.log(`✓ Found ${allDevices.length} total devices from Tuya API`);
+        return allDevices;
+    }
 }
 
-export type { TuyaLogEntry, TuyaLogResult, TuyaApiResponse };
+export type {
+    TuyaLogEntry,
+    TuyaLogResult,
+    TuyaApiResponse,
+    TuyaDevice,
+    TuyaDeviceResponse,
+    TuyaDevicesListResponse,
+};
