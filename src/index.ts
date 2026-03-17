@@ -15,6 +15,7 @@ interface Bindings {
     ADMIN_PASSWORD: string;
 }
 
+
 const app = new Hono<{ Bindings: Bindings }>();
 
 // Enable CORS for all routes

@@ -2,6 +2,7 @@ import { Database } from "../db";
 import { dailyConsumption, devices, type NewDevice } from "../db/schema";
 import { TuyaApiService, TuyaLogEntry, TuyaDevice } from "./tuya-api";
 import { eq, and, max, sum, sql } from "drizzle-orm";
+import { PRICE_ERA_DATES } from "../prices";
 
 interface TariffRules {
     isLowTariff(date: Date): boolean;
@@ -578,7 +579,20 @@ export class EnergyProcessor {
             // Track unique dates per device for proper averaging
             const deviceDates: Record<string, Set<string>> = {};
 
+            // Era-split tracking per device: deviceId -> era -> { low, high, days }
+            const deviceEraAggregates: Record<
+                string,
+                Record<string, { totalLow: number; totalHigh: number; days: Set<string> }>
+            > = {};
+            // Era-split tracking for overall totals
+            const overallEraAggregates: Record<
+                string,
+                { totalLow: number; totalHigh: number; days: Set<string> }
+            > = {};
+
             for (const row of result) {
+                const era = getEraForDate(row.date);
+
                 // Per-device aggregation
                 if (!deviceAggregates[row.deviceId]) {
                     deviceAggregates[row.deviceId] = {
@@ -589,10 +603,27 @@ export class EnergyProcessor {
                         totalDays: 0,
                     };
                     deviceDates[row.deviceId] = new Set();
+                    deviceEraAggregates[row.deviceId] = {};
                 }
                 deviceAggregates[row.deviceId].totalLow += row.lowTariffKwh;
                 deviceAggregates[row.deviceId].totalHigh += row.highTariffKwh;
                 deviceDates[row.deviceId].add(row.date);
+
+                // Per-device era aggregation
+                if (!deviceEraAggregates[row.deviceId][era]) {
+                    deviceEraAggregates[row.deviceId][era] = { totalLow: 0, totalHigh: 0, days: new Set() };
+                }
+                deviceEraAggregates[row.deviceId][era].totalLow += row.lowTariffKwh;
+                deviceEraAggregates[row.deviceId][era].totalHigh += row.highTariffKwh;
+                deviceEraAggregates[row.deviceId][era].days.add(row.date);
+
+                // Overall era aggregation
+                if (!overallEraAggregates[era]) {
+                    overallEraAggregates[era] = { totalLow: 0, totalHigh: 0, days: new Set() };
+                }
+                overallEraAggregates[era].totalLow += row.lowTariffKwh;
+                overallEraAggregates[era].totalHigh += row.highTariffKwh;
+                overallEraAggregates[era].days.add(row.date);
 
                 // Daily aggregation across all devices
                 if (!dailyAggregates[row.date]) {
@@ -611,6 +642,17 @@ export class EnergyProcessor {
                     deviceDates[deviceId].size;
             }
 
+            // Helper to convert era aggregates to sorted array
+            const toEraArray = (eras: Record<string, { totalLow: number; totalHigh: number; days: Set<string> }>) =>
+                Object.entries(eras)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([effectiveFrom, data]) => ({
+                        effectiveFrom,
+                        totalLow: data.totalLow,
+                        totalHigh: data.totalHigh,
+                        days: data.days.size,
+                    }));
+
             // Convert devices to array and calculate averages
             const devicesData = Object.values(deviceAggregates).map(
                 (device) => {
@@ -626,6 +668,7 @@ export class EnergyProcessor {
                         averageLow: device.totalLow / numDays,
                         averageHigh: device.totalHigh / numDays,
                         averageTotal: grandTotal / numDays,
+                        byEra: toEraArray(deviceEraAggregates[device.deviceId] || {}),
                     };
                 }
             );
@@ -655,6 +698,7 @@ export class EnergyProcessor {
                 averageLow: totalLow / totalDaysCount,
                 averageHigh: totalHigh / totalDaysCount,
                 averageTotal: grandTotal / totalDaysCount,
+                byEra: toEraArray(overallEraAggregates),
             };
 
             return {
