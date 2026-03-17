@@ -46,6 +46,68 @@ app.get("/", (c) => {
     return c.text("Energy Monitor API - Powered by Hono 🔥");
 });
 
+// Electricity price history — served to the frontend so pricing is centralized
+app.get("/prices", (c) => {
+    return c.json([
+        {
+            effectiveFrom: "2025-01-01",
+            prices: {
+                industrial: {
+                    constants: { tax: 0.18, communal: 368, access: 200 },
+                    tariffs: {
+                        highTariff: { distributionPrice: 2.1418, price: 15.1845 },
+                        lowTariff: { distributionPrice: 2.1418, price: 15.1845 },
+                    },
+                },
+                residential: {
+                    constants: { tax: 0.18, communal: 184, access: 200 },
+                    tariffs: {
+                        highTariff: {
+                            distributionPrice: 2.1418,
+                            price: null,
+                            blocks: {
+                                b1: { limit: 210, price: 4.4376, label: "Блок 1" },
+                                b2: { limit: 630, price: 5.5664, label: "Блок 2" },
+                                b3: { limit: 1050, price: 7.4314, label: "Блок 3" },
+                                b4: { limit: null, price: 18.3035, label: "Блок 4" },
+                            },
+                        },
+                        lowTariff: { distributionPrice: 2.1418, price: 1.9765, blocks: null },
+                    },
+                },
+            },
+        },
+        {
+            effectiveFrom: "2026-01-01",
+            prices: {
+                industrial: {
+                    constants: { tax: 0.18, communal: 368, access: 200 },
+                    tariffs: {
+                        highTariff: { distributionPrice: 2.0339, price: 17.991 },
+                        lowTariff: { distributionPrice: 2.0339, price: 17.991 },
+                    },
+                },
+                residential: {
+                    constants: { tax: 0.18, communal: 184, access: 200 },
+                    tariffs: {
+                        highTariff: {
+                            distributionPrice: 2.0339,
+                            price: null,
+                            blocks: {
+                                b1: { limit: 210, price: 4.7074, label: "Блок 1" },
+                                b2: { limit: 630, price: 5.8976, label: "Блок 2" },
+                                b3: { limit: 1050, price: 7.8537, label: "Блок 3" },
+                                b4: { limit: null, price: 19.1904, label: "Блок 4" },
+                            },
+                        },
+                        lowTariff: { distributionPrice: 2.0339, price: 1.9765, blocks: null },
+                    },
+                },
+            },
+        },
+    ]);
+});
+
 // Check authentication endpoint
 app.get("/check-auth", requireAuth, async (c) => {
     return c.json({
