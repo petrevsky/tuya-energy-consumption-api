@@ -8,6 +8,13 @@
       "when": 1754851980900,
       "tag": "0000_gray_layla_miller",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1743400000000,
+      "tag": "0001_add_monitored_to_devices",
+      "breakpoints": true
     }
   ]
 }

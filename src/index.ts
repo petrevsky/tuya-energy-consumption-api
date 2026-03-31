@@ -530,6 +530,57 @@ app.put("/devices/:id", requireAuth, async (c) => {
     }
 });
 
+app.patch("/devices/:id/monitored", requireAuth, async (c) => {
+    try {
+        const deviceId = c.req.param("id");
+        const { monitored } = await c.req.json();
+
+        if (typeof monitored !== "boolean") {
+            return c.text('"monitored" must be a boolean.', 400);
+        }
+
+        const db = createDatabase(c.env.DB);
+
+        const updatedDevice = await db
+            .update(devices)
+            .set({ monitored })
+            .where(eq(devices.id, deviceId))
+            .returning();
+
+        if (updatedDevice.length === 0) {
+            return c.text("Device not found", 404);
+        }
+
+        return c.json(updatedDevice[0]);
+    } catch (error) {
+        console.error("Failed to update device monitoring:", error);
+        return c.text(
+            "Error updating device: " + (error as Error).message,
+            500
+        );
+    }
+});
+
+app.post("/devices/sync", requireAuth, async (c) => {
+    try {
+        const db = createDatabase(c.env.DB);
+        const tuyaApi = new TuyaApiService({
+            clientId: c.env.TUYA_CLIENT_ID,
+            secret: c.env.TUYA_SECRET,
+            deviceId: c.env.TUYA_DEVICE_ID,
+            baseUrl: c.env.TUYA_BASE_URL,
+        });
+
+        const processor = new EnergyProcessor(db, tuyaApi);
+        const result = await processor.syncDevicesFromTuya();
+
+        return c.text(result);
+    } catch (error) {
+        console.error("Failed to sync devices:", error);
+        return c.text("Sync failed: " + (error as Error).message, 500);
+    }
+});
+
 app.delete("/devices/:id", requireAuth, async (c) => {
     try {
         const deviceId = c.req.param("id");

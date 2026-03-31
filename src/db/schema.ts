@@ -24,6 +24,7 @@ export const devices = sqliteTable("Devices", {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     householdId: integer("household_id").references(() => households.id),
+    monitored: integer("monitored", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp" })
         .notNull()
         .$default(() => new Date()),

@@ -2,7 +2,7 @@ import { Database } from "../db";
 import { dailyConsumption, devices, type NewDevice } from "../db/schema";
 import { TuyaApiService, TuyaLogEntry, TuyaDevice } from "./tuya-api";
 import { eq, and, max, sum, sql } from "drizzle-orm";
-import { PRICE_ERA_DATES } from "../prices";
+import { PRICE_ERA_DATES, getEraForDate } from "../prices";
 
 interface TariffRules {
     isLowTariff(date: Date): boolean;
@@ -787,72 +787,39 @@ export class EnergyProcessor {
     }
 
     async processAllDevices(): Promise<string> {
-        console.log("🔄 Starting to process all devices from Tuya API...");
+        console.log("🔄 Starting to process monitored devices...");
 
         try {
-            // Step 1: Get all devices from Tuya API
-            const tuyaDevices = await this.tuyaApi.getAllDevices();
-            console.log(`📱 Found ${tuyaDevices.length} devices from Tuya API`);
+            // Get only monitored devices from the database
+            const monitoredDevices = await this.db
+                .select()
+                .from(devices)
+                .where(eq(devices.monitored, true));
 
-            if (tuyaDevices.length === 0) {
-                return "No devices found from Tuya API.";
+            console.log(`📱 Found ${monitoredDevices.length} monitored devices`);
+
+            if (monitoredDevices.length === 0) {
+                return "No monitored devices found. Mark devices as monitored via the API.";
             }
 
             let processedCount = 0;
-            let createdCount = 0;
             const results: string[] = [];
 
-            // Step 2: Process each device
-            for (const tuyaDevice of tuyaDevices) {
+            for (const device of monitoredDevices) {
                 try {
                     console.log(
-                        `🔍 Processing device: ${tuyaDevice.name} (${tuyaDevice.id})`
+                        `⚡ Processing energy logs for device: ${device.name} (${device.id})`
                     );
-
-                    // Step 3: Check if device exists in database
-                    const existingDevice = await this.db
-                        .select()
-                        .from(devices)
-                        .where(eq(devices.id, tuyaDevice.id))
-                        .get();
-
-                    // Step 4: Create device if it doesn't exist
-                    if (!existingDevice) {
-                        console.log(
-                            `➕ Creating new device in database: ${tuyaDevice.name}`
-                        );
-
-                        const newDevice: NewDevice = {
-                            id: tuyaDevice.id,
-                            name: tuyaDevice.customName || tuyaDevice.name,
-                            householdId: 1, // Default to household ID 1 as requested
-                        };
-
-                        await this.db.insert(devices).values(newDevice);
-                        createdCount++;
-                        console.log(
-                            `✅ Device created successfully: ${tuyaDevice.name}`
-                        );
-                    } else {
-                        console.log(
-                            `📋 Device already exists in database: ${tuyaDevice.name}`
-                        );
-                    }
-
-                    // Step 5: Process energy logs for this device
-                    console.log(
-                        `⚡ Processing energy logs for device: ${tuyaDevice.name}`
-                    );
-                    const result = await this.processEnergyLogs(tuyaDevice.id);
-                    results.push(`Device ${tuyaDevice.name}: ${result}`);
+                    const result = await this.processEnergyLogs(device.id);
+                    results.push(`Device ${device.name}: ${result}`);
                     processedCount++;
                 } catch (deviceError) {
                     console.error(
-                        `❌ Error processing device ${tuyaDevice.name}:`,
+                        `❌ Error processing device ${device.name}:`,
                         deviceError
                     );
                     results.push(
-                        `Device ${tuyaDevice.name}: Failed - ${
+                        `Device ${device.name}: Failed - ${
                             (deviceError as Error).message
                         }`
                     );
@@ -860,17 +827,55 @@ export class EnergyProcessor {
             }
 
             const summary = [
-                `✅ Processed ${processedCount}/${tuyaDevices.length} devices successfully`,
-                `➕ Created ${createdCount} new devices in database`,
+                `✅ Processed ${processedCount}/${monitoredDevices.length} monitored devices`,
                 "",
                 "📊 Individual results:",
                 ...results,
             ].join("\n");
 
-            console.log("🎉 All devices processing completed!");
+            console.log("🎉 All monitored devices processing completed!");
             return summary;
         } catch (error) {
-            console.error("❌ Failed to process all devices:", error);
+            console.error("❌ Failed to process monitored devices:", error);
+            throw error;
+        }
+    }
+
+    async syncDevicesFromTuya(): Promise<string> {
+        console.log("🔄 Syncing devices from Tuya API...");
+
+        try {
+            const tuyaDevices = await this.tuyaApi.getAllDevices();
+            console.log(`📱 Found ${tuyaDevices.length} devices from Tuya API`);
+
+            let createdCount = 0;
+
+            for (const tuyaDevice of tuyaDevices) {
+                const existingDevice = await this.db
+                    .select()
+                    .from(devices)
+                    .where(eq(devices.id, tuyaDevice.id))
+                    .get();
+
+                if (!existingDevice) {
+                    const newDevice: NewDevice = {
+                        id: tuyaDevice.id,
+                        name: tuyaDevice.customName || tuyaDevice.name,
+                        householdId: 1,
+                        monitored: false,
+                    };
+
+                    await this.db.insert(devices).values(newDevice);
+                    createdCount++;
+                    console.log(
+                        `➕ Created new device: ${tuyaDevice.customName || tuyaDevice.name}`
+                    );
+                }
+            }
+
+            return `Synced ${tuyaDevices.length} devices from Tuya. Created ${createdCount} new devices.`;
+        } catch (error) {
+            console.error("❌ Failed to sync devices from Tuya:", error);
             throw error;
         }
     }
