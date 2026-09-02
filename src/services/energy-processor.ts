@@ -665,6 +665,7 @@ export class EnergyProcessor {
                         totalLow: device.totalLow,
                         totalHigh: device.totalHigh,
                         grandTotal,
+                        totalDays: device.totalDays,
                         averageLow: device.totalLow / numDays,
                         averageHigh: device.totalHigh / numDays,
                         averageTotal: grandTotal / numDays,
